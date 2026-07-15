@@ -8,6 +8,8 @@ from langchain_core.messages import AIMessage
 from services.routes import get_travel_details
 from services.images import get_destination_images
 import streamlit as st
+from utils import safe_llm_invoke
+from services.budget_engine import estimate_budget
 
 from prompts import (
     EXTRACT_PROMPT,
@@ -42,15 +44,21 @@ def extract_information(state):
     if not messages:
         messages = [HumanMessage(content=state["user_query"])]
 
-    response = structured_llm.invoke(
-        [SystemMessage(content=EXTRACT_PROMPT)] + messages
+    response = safe_llm_invoke(
+        structured_llm,
+        [SystemMessage(content=EXTRACT_PROMPT)] + messages,
     )
+
+    if isinstance(response, dict) and not response.get("success", True):
+        state["error"] = response["error"]
+        return state
 
     state["travel_details"] = response
 
     state.setdefault("observations", {})
 
     return state
+
 def planner(state):
     """
     Decide which tasks are required for the user's request.
@@ -58,12 +66,18 @@ def planner(state):
 
     details = state["travel_details"]
 
-    response = planner_llm.invoke(
+    response = safe_llm_invoke(
+        planner_llm,
         [
             SystemMessage(content=PLANNER_PROMPT),
             HumanMessage(content=details.model_dump_json()),
-        ]
+        ],
     )
+
+    # If the LLM call failed
+    if isinstance(response, dict) and not response.get("success", True):
+        state["error"] = response["error"]
+        return state
 
     state["plan"] = response.tasks
 
@@ -72,8 +86,6 @@ def planner(state):
     print("================================")
 
     return state
-
-
 def weather_node(state):
     """
     Fetch weather for the extracted destination.
@@ -181,10 +193,10 @@ def itinerary_node(state):
     """
 
     travel = state["travel_details"]
-
     observations = state["observations"]
 
-    response = itinerary_llm.invoke(
+    response = safe_llm_invoke(
+        itinerary_llm,
         [
             SystemMessage(content=ITINERARY_PROMPT),
             HumanMessage(
@@ -202,20 +214,20 @@ Attractions:
 {observations.get("attractions")}
 """
             ),
-        ]
+        ],
     )
 
+    # If the LLM call failed
+    if isinstance(response, dict) and not response.get("success", True):
+        state["error"] = response["error"]
+        return state
+
     state["observations"]["itinerary"] = [
-    day.model_dump()
-    for day in response.itinerary
-]
+        day.model_dump()
+        for day in response.itinerary
+    ]
 
     return state
-
-from services.budget import estimate_budget
-
-
-from services.budget_engine import estimate_budget
 
 
 def budget_node(state):
@@ -307,6 +319,7 @@ def executor_node(state):
                 state["observations"][task] = None
 
     return state
+
 
 
 
@@ -416,29 +429,34 @@ Itinerary
     # -------------------------
     # Final Response
     # -------------------------
-    
-    response = llm.invoke(
-    [
-        SystemMessage(content=RESPONSE_PROMPT),
-        HumanMessage(content=context),
-    ]
-)
+
+    response = safe_llm_invoke(
+        llm,
+        [
+            SystemMessage(content=RESPONSE_PROMPT),
+            HumanMessage(content=context),
+        ],
+    )
+
+    if isinstance(response, dict) and not response.get("success", True):
+        state["error"] = response["error"]
+        return state
 
     state["final_answer"] = response.content
+
     state["dashboard"] = {
-    "travel": state["travel_details"],
-    "weather": state["observations"].get("weather"),
-    "images": state["observations"].get("images", []),
-    "budget": state["observations"].get("budget"),
-    "hotels": state["observations"].get("hotels", []),
-    "attractions": state["observations"].get("attractions", []),
-    "itinerary": state["observations"].get("itinerary"),
-    "route": state["observations"].get("route"),
-}
+        "travel": state["travel_details"],
+        "weather": observations.get("weather"),
+        "images": observations.get("images", []),
+        "budget": observations.get("budget"),
+        "hotels": observations.get("hotels", []),
+        "attractions": observations.get("attractions", []),
+        "itinerary": observations.get("itinerary"),
+        "route": observations.get("route"),
+    }
 
     state["messages"].append(
-    AIMessage(content=response.content)
-)
+        AIMessage(content=response.content)
+    )
 
     return state
-    

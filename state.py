@@ -25,3 +25,4 @@ class TravelState(TypedDict):
     # Final response
     final_answer: str
     dashboard: Dict[str, Any]
+    error: str | None

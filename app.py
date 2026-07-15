@@ -76,6 +76,7 @@ if trip_request:
                     "observations": {},
                     "final_answer": "",
                     "dashboard": {},
+                    "error": None,
                 }
             )
 
@@ -83,8 +84,36 @@ if trip_request:
             st.rerun()
 
         except Exception as e:
-            st.exception(e)
-            traceback.print_exc()
+
+            error_msg = str(e).lower()
+
+            if "429" in error_msg or "quota" in error_msg:
+                st.error(
+                    "⚠️ API usage limit has been reached. Please try again later."
+                )
+
+            elif "401" in error_msg or "unauthorized" in error_msg:
+                st.error(
+                    "⚠️ Authentication failed. Please contact the application owner."
+                )
+
+            elif "timeout" in error_msg:
+                st.error(
+                    "⚠️ The request timed out. Please try again in a few moments."
+                )
+
+            elif "connection" in error_msg or "network" in error_msg:
+                st.error(
+                    "⚠️ Unable to connect to the required services. Please try again later."
+                )
+
+            else:
+                st.error(
+                    "⚠️ Sorry! We couldn't generate your travel plan right now. Please try again later."
+                )
+
+            # Log the actual error to the server logs (not shown to users)
+            print(f"Application Error: {e}")
         
 
 # --------------------------------------------------
